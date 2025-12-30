@@ -44,8 +44,13 @@ Access-Control-Allow-Methods: GET, POST, PUT
 ## 4. OAuth vs OIDC vs SSO
 **Concept:**
 - **OAuth 2.0 (Authorization)**: "I give this app permission to access my photos on Google." It provides an Access Token. It does *not* tell the app *who* the user is.
+  
+  **Simple Analogy:** If we use Google OAuth, we can login with our Google account. The login/authentication is handled entirely by Google. If the user is a valid OAuth user, Google returns a token and some necessary details to our application - we never handle the password directly.
+
 - **OIDC (OpenID Connect) (Authentication)**: Built on top of OAuth 2.0. "I want to log in with Google." It provides an ID Token (JWT) containing user info.
 - **SSO (Single Sign-On)**: A session/user authentication process that permits a user to use one set of login credentials to access multiple applications. OIDC is a common protocol to implement SSO.
+
+  **Simple Analogy:** Login once, access many applications. For example, when you log in to Google once, you can access Gmail, YouTube, Google Drive, etc., without logging in separately to each one. The Identity Provider maintains your session and provides tokens to other connected apps automatically.
 
 **Flow:**
 1. App redirects to Identity Provider (IdP).
