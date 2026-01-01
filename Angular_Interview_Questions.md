@@ -173,6 +173,25 @@ Dependency Injection (DI) means "you ask for what you need, and the framework gi
 - **Without DI:** You go buy ingredients and cook the meal yourself.
 - **With DI:** You tell the waiter what you want and the kitchen brings it ready-to-eat.
 
+**Visual Flow:**
+```
+WITHOUT DI:
+Component → "I need UserService" → Goes and creates new UserService() itself
+                                 → Must know HOW to create it
+                                 → Must create everything UserService needs too
+
+WITH DI (Angular provides):
+Component → "I need UserService" → Angular hears this
+                                 ↓
+                         Angular checks if UserService exists
+                                 ↓
+                         Angular creates it (if needed)
+                                 ↓
+                         Angular gives it to Component ✅
+                                 ↓
+                    Component uses it (no setup needed!)
+```
+
 **Why this helps (simple bullets):**
 - Makes code easier to test (replace real parts with simple fakes)
 - Lets you change implementations in one place (no mass edits)
@@ -183,19 +202,17 @@ Dependency Injection (DI) means "you ask for what you need, and the framework gi
 
 ### Very short examples (what changes)
 
-**Without DI (you create the service yourself):**
+**Without DI:**
 ```typescript
-export class UserComponent {
-  constructor() {
-    this.userService = new UserService(); // You create it directly
-  }
+class UserComponent {
+  userService = new UserService(); // ❌ You create it
 }
 ```
 
-**With DI (Angular gives it to you):**
+**With DI:**
 ```typescript
-export class UserComponent {
-  constructor(private userService: UserService) {} // Angular injects it
+class UserComponent {
+  constructor(private userService: UserService) {} // ✅ Angular gives it
 }
 ```
 
@@ -214,11 +231,14 @@ export class UserComponent {
 
 ---
 
-### Quick comparison table (one-line)
-| Without DI | With DI |
-|-----------:|--------:|
-| Component constructs dependencies (`new`) | Angular injects dependencies for you |
-| Hard to test, change, and maintain | Easy to test, flexible, maintainable |
+### Quick comparison table
+
+| Aspect | Without DI | With DI |
+|--------|-----------|---------|
+| **Who creates service?** | You do (`new UserService()`) | Angular does |
+| **Testing** | ❌ Hard (real API calls) | ✅ Easy (mock services) |
+| **Changing service** | ❌ Edit every file | ✅ Edit one config |
+| **Maintenance** | ❌ Hard | ✅ Easy |
 
 ---
 
@@ -846,40 +866,370 @@ export class CheckoutComponent implements OnInit {
 ---
 
 ## 2.2. Dependency Injection Decorators (@Self, @SkipSelf, @Optional)
-**Concept:** These control how the DI system resolves dependencies.
-- **`@Self()`**: Looks for the dependency *only* in the current component's injector. Throws error if not found.
-- **`@SkipSelf()`**: Skips the current injector and looks in the parent injector(s).
-- **`@Optional()`**: Does not throw an error if the dependency is not found; returns `null`.
 
-**Example with Constructor:**
+### What are DI Decorators?
+
+These decorators control **WHERE** Angular looks for a service when you inject it. They tell Angular's injector system to search in specific places or behave differently if the service is not found.
+
+**Think of it like asking for help in an office building:**
+- **@Self()** = "Only ask people in MY office (this room only)"
+- **@SkipSelf()** = "Don't ask me, ask people on other floors (skip my level)"
+- **@Optional()** = "If nobody has it, that's okay, I won't complain (no error)"
+
+---
+
+### Visual: Angular's Injector Hierarchy (Who Has the Service?)
+
+```
+Root Injector (providedIn: 'root')
+  └── LoggerService ✅ (available here)
+       │
+       ├── ParentComponent
+       │    └── LoggerService ✅ (also provided here - NEW instance)
+       │         │
+       │         └── ChildComponent 🎯 (asks for LoggerService)
+       │              └── Which LoggerService will I get?
+       │                   - @Self() → Look ONLY in ChildComponent ❌ (not found → ERROR!)
+       │                   - @SkipSelf() → Skip ChildComponent, look in ParentComponent ✅ (found!)
+       │                   - No decorator → Look in ChildComponent first, then up ✅ (finds Parent's)
+       │                   - @Optional() → If not found anywhere, return null (no error)
+```
+
+---
+
+### Decorator 1: @Self() - "Only My Level"
+
+**What it does:** Searches ONLY in the current component's injector. Does NOT look up the hierarchy.
+
+**Visual Flow:**
+```
+Root (has LoggerService)
+  ↓
+ParentComponent (has LoggerService)
+  ↓
+ChildComponent → constructor(@Self() logger: LoggerService)
+                 ↓
+            Looks ONLY here ❌ (not found)
+                 ↓
+            Throws ERROR! ❌
+```
+
+**Example:**
+```typescript
+@Component({
+  selector: 'app-child',
+  providers: [LoggerService] // ✅ Provided at component level
+})
+class ChildComponent {
+  constructor(@Self() private logger: LoggerService) {
+    // ✅ Works! Found in ChildComponent's own injector
+  }
+}
+
+@Component({
+  selector: 'app-child2'
+  // ❌ No providers here
+})
+class Child2Component {
+  constructor(@Self() private logger: LoggerService) {
+    // ❌ ERROR! Not found in Child2Component's injector
+    // Won't look in parent or root
+  }
+}
+```
+
+**Use case:** When you want to ensure a component uses its OWN instance, not a shared one.
+
+---
+
+### Decorator 2: @SkipSelf() - "Skip My Level, Ask Above"
+
+**What it does:** Skips the current component's injector and searches in parent injectors only.
+
+**Visual Flow:**
+```
+Root (has LoggerService) ✅
+  ↓
+ParentComponent (has LoggerService) ✅
+  ↓
+ChildComponent → constructor(@SkipSelf() logger: LoggerService)
+                 ↓
+            SKIPS ChildComponent's injector (even if it has one)
+                 ↓
+            Looks in ParentComponent ✅ (found!)
+```
+
+**Example:**
+```typescript
+@Component({
+  selector: 'app-parent',
+  providers: [LoggerService] // ✅ Provided here
+})
+class ParentComponent {}
+
+@Component({
+  selector: 'app-child',
+  providers: [LoggerService] // Has its own instance
+})
+class ChildComponent {
+  constructor(@SkipSelf() private logger: LoggerService) {
+    // ✅ Skips its own LoggerService
+    // ✅ Gets ParentComponent's LoggerService instead
+  }
+}
+```
+
+**Use case:** When you want the parent's service, not your own.
+
+---
+
+### Decorator 3: @Optional() - "It's Okay if Not Found"
+
+**What it does:** If the service is not found anywhere, returns `null` instead of throwing an error.
+
+**Visual Flow:**
+```
+Root (NO LoggerService) ❌
+  ↓
+ParentComponent (NO LoggerService) ❌
+  ↓
+ChildComponent → constructor(@Optional() logger: LoggerService)
+                 ↓
+            Searches everywhere... not found
+                 ↓
+            Returns null (no error) ✅
+```
+
+**Example:**
+```typescript
+@Component({
+  selector: 'app-child'
+  // No providers anywhere for AnalyticsService
+})
+class ChildComponent {
+  constructor(@Optional() private analytics: AnalyticsService | null) {
+    if (this.analytics) {
+      this.analytics.trackEvent('page_view'); // ✅ Use if available
+    } else {
+      console.log('Analytics not available'); // ✅ Graceful fallback
+    }
+  }
+}
+```
+
+**Use case:** Optional features that may or may not be configured.
+
+---
+
+### Combining Decorators
+
+You can combine `@SkipSelf()` and `@Optional()` together:
+
+```typescript
+@Component({...})
+class ChildComponent {
+  constructor(
+    @Optional() @SkipSelf() private parentLogger: LoggerService | null
+  ) {
+    // Skip my own injector, look in parent
+    // If parent doesn't have it, return null (no error)
+  }
+}
+```
+
+**Visual:**
+```
+Root (NO LoggerService) ❌
+  ↓
+ParentComponent (NO LoggerService) ❌
+  ↓
+ChildComponent → constructor(@Optional() @SkipSelf() logger)
+                 ↓
+            Skips ChildComponent
+                 ↓
+            Looks in ParentComponent ❌ (not found)
+                 ↓
+            Returns null ✅ (no error because of @Optional)
+```
+
+---
+
+### Comparison Table
+
+| Decorator | Search Scope | If Not Found | Use Case |
+|-----------|-------------|--------------|----------|
+| **None (default)** | Current → Parent → Root | ❌ Error | Normal dependency |
+| **@Self()** | Current component ONLY | ❌ Error | Force own instance |
+| **@SkipSelf()** | Parent → Root (skip current) | ❌ Error | Use parent's instance |
+| **@Optional()** | Current → Parent → Root | ✅ Returns `null` | Optional feature |
+| **@Optional() + @SkipSelf()** | Parent → Root (skip current) | ✅ Returns `null` | Optional parent service |
+
+---
+
+### Real-World Scenario
+
+**Scenario:** Form controls need to access their parent form
+
+```
+AppComponent
+  └── ParentFormComponent (provides FormService)
+       └── ChildInputComponent → needs PARENT's FormService, not its own
+```
+
+**Code:**
+```typescript
+@Component({
+  selector: 'app-parent-form',
+  providers: [FormService] // Parent provides FormService
+})
+class ParentFormComponent {}
+
+@Component({
+  selector: 'app-child-input'
+})
+class ChildInputComponent {
+  constructor(@SkipSelf() private formService: FormService) {
+    // ✅ Gets parent's FormService
+    // Even if ChildInput had its own provider, it would skip it
+  }
+}
+```
+
+---
+
+### Using inject() function (modern way)
+
+**Constructor way:**
 ```typescript
 constructor(
-  @Self() private serviceA: MyService, 
-  @Optional() @SkipSelf() private parentService: MyService
+  @Self() private serviceA: MyService,
+  @Optional() @SkipSelf() private parentService: MyService | null
 ) {}
 ```
 
-**Example with inject():**
+**inject() way:**
 ```typescript
 private serviceA = inject(MyService, { self: true });
 private parentService = inject(MyService, { optional: true, skipSelf: true });
 ```
 
+Both work the same! Use `inject()` for cleaner, modern Angular code.
+
 ## 3. RxJS Operators: `takeUntil` vs `takeUntilDestroyed`
 **Concept:** Managing subscription leaks.
 - **`takeUntil(notifier$)`**: Emits values until the `notifier$` Observable emits. Commonly used with a `destroy$` Subject in `ngOnDestroy`.
-- **`takeUntilDestroyed`** (Angular 16+): An operator that automatically completes the observable when the current context (component/directive) is destroyed. Requires injection context or passing `DestroyRef`.
+- **`takeUntilDestroyed`** (Angular 16+): An operator that automatically completes the observable when the current context (component/directive) is destroyed. **⚠️ Requires injection context or passing `DestroyRef` - will throw runtime error if not available!**
 
 **Example:**
 ```typescript
-// Old Pattern
+// Old Pattern - takeUntil (always works)
 private destroy$ = new Subject<void>();
 data$.pipe(takeUntil(this.destroy$)).subscribe();
 ngOnDestroy() { this.destroy$.next(); }
 
-// New Pattern (Angular 16+)
-data$.pipe(takeUntilDestroyed()).subscribe();
+// New Pattern (Angular 16+) - takeUntilDestroyed
+data$.pipe(takeUntilDestroyed()).subscribe(); // ✅ Works in injection context
 ```
+
+### ⚠️ Important: takeUntilDestroyed() Requires Injection Context!
+
+**takeUntilDestroyed() works ONLY in these places:**
+1. Inside constructor
+2. In class property initializers
+3. When you pass `DestroyRef` explicitly
+
+**❌ Runtime Error Example:**
+```typescript
+@Component({...})
+class MyComponent {
+  ngOnInit() {
+    // ❌ ERROR! Not in injection context
+    this.data$.pipe(takeUntilDestroyed()).subscribe();
+    // Error: NG0203 - inject() must be called from an injection context
+  }
+}
+```
+
+**✅ Correct Usage:**
+
+**Option 1: Use in constructor or property initializer (injection context)**
+```typescript
+@Component({...})
+class MyComponent {
+  private data$ = this.http.get('/api/data');
+  
+  // ✅ Works - property initializer is injection context
+  private subscription = this.data$.pipe(takeUntilDestroyed()).subscribe();
+  
+  constructor(private http: HttpClient) {
+    // ✅ Works - constructor is injection context
+    this.data$.pipe(takeUntilDestroyed()).subscribe();
+  }
+}
+```
+
+**Option 2: Pass DestroyRef explicitly**
+```typescript
+@Component({...})
+class MyComponent {
+  private destroyRef = inject(DestroyRef); // Get DestroyRef in injection context
+  
+  ngOnInit() {
+    // ✅ Works - passing DestroyRef explicitly
+    this.data$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
+  }
+  
+  loadData() {
+    // ✅ Works - using stored DestroyRef
+    this.http.get('/api/data')
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe();
+  }
+}
+```
+
+**Option 3: Use takeUntil (old pattern - works everywhere)**
+```typescript
+@Component({...})
+class MyComponent {
+  private destroy$ = new Subject<void>();
+  
+  ngOnInit() {
+    // ✅ Works - no injection context needed
+    this.data$.pipe(takeUntil(this.destroy$)).subscribe();
+  }
+  
+  loadData() {
+    // ✅ Works anywhere
+    this.http.get('/api/data')
+      .pipe(takeUntil(this.destroy$))
+      .subscribe();
+  }
+  
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+}
+```
+
+### Comparison: takeUntil vs takeUntilDestroyed
+
+| Feature | **takeUntil** | **takeUntilDestroyed** |
+|---------|---------------|------------------------|
+| **Angular Version** | All versions | Angular 16+ |
+| **Boilerplate** | More (need Subject + ngOnDestroy) | Less (automatic) |
+| **Injection Context** | ❌ Not required | ⚠️ **Required** (or pass DestroyRef) |
+| **Works in ngOnInit** | ✅ Yes | ❌ No (unless you pass DestroyRef) |
+| **Works in methods** | ✅ Yes | ❌ No (unless you pass DestroyRef) |
+| **Runtime Error Risk** | ❌ No | ⚠️ **Yes** (if no injection context) |
+| **Use Case** | Any lifecycle hook or method | Constructor or property initializers |
+
+### Summary
+
+- **takeUntil:** Works everywhere, more boilerplate, no context issues
+- **takeUntilDestroyed:** Less boilerplate BUT needs injection context or explicit DestroyRef
+- **Best Practice:** Use `takeUntilDestroyed(this.destroyRef)` pattern to avoid runtime errors
 
 ## 4. `shareReplay`
 **Concept:** A multicasting operator. It shares the underlying subscription with multiple subscribers and replays the last `N` emissions to new subscribers.
@@ -1150,15 +1500,334 @@ bSub.next(1); // BSub A: 1
 bSub.subscribe(v => console.log('BSub B:', v)); // BSub B: 1 (Immediate)
 ```
 
-## 9. Handling Large Lists (Virtual Scrolling)
-**Concept:** Rendering 100,000 items (1 lakh) in the DOM will crash the browser. Use **Virtual Scrolling** (CDK Virtual Scroll) to render only the items currently visible in the viewport.
+## 9. Handling Large Lists - Multiple Strategies
 
-**Example:**
-```html
-<cdk-virtual-scroll-viewport itemSize="50" class="example-viewport">
-  <div *cdkVirtualFor="let item of items" class="example-item">{{item}}</div>
-</cdk-virtual-scroll-viewport>
+**Problem:** Rendering 100,000 items (1 lakh) directly in the DOM will freeze or crash the browser.
+
+### Strategy Comparison
+
+| Strategy | Best For | Pros | Cons |
+|----------|----------|------|------|
+| **Virtual Scrolling** | Continuous scrolling, all data in memory | Fast, smooth scrolling | Requires all data upfront, memory intensive |
+| **Pagination** | Tables, search results | Simple, low memory | Poor UX (click to load more) |
+| **Infinite Scroll** | Social feeds, news | Great UX, loads on demand | Complex state management |
+| **Server-side Filtering** | Very large datasets (millions) | Minimal data transfer | Backend dependency |
+| **Windowing (manual)** | Custom scroll behavior | Full control | Complex implementation |
+
+---
+
+### Option 1: Virtual Scrolling (CDK - Recommended for large in-memory lists)
+
+**When to use:** You have all data in memory and want smooth scrolling.
+
+**How it works:** Only renders visible items in viewport, reuses DOM nodes as you scroll.
+
+```typescript
+import { CdkVirtualScrollViewport, ScrollingModule } from '@angular/cdk/scrolling';
+
+@Component({
+  selector: 'app-list',
+  standalone: true,
+  imports: [ScrollingModule, CommonModule],
+  template: `
+    <cdk-virtual-scroll-viewport itemSize="50" class="viewport">
+      <div *cdkVirtualFor="let item of items" class="item">
+        {{ item.name }}
+      </div>
+    </cdk-virtual-scroll-viewport>
+  `,
+  styles: [`
+    .viewport {
+      height: 500px;
+      width: 100%;
+      border: 1px solid #ccc;
+    }
+    .item {
+      height: 50px;
+      padding: 10px;
+    }
+  `]
+})
+export class ListComponent {
+  items = Array.from({ length: 100000 }, (_, i) => ({
+    id: i,
+    name: `Item ${i}`
+  }));
+}
 ```
+
+**Performance:**
+- ✅ Renders only ~20 items at a time (what fits in viewport)
+- ✅ Handles 100k+ items smoothly
+- ⚠️ All data must be in memory
+
+---
+
+### Option 2: Pagination (Best for tables/search results)
+
+**When to use:** Traditional table views, search results, admin panels.
+
+**How it works:** Load data in chunks (pages), user clicks to navigate.
+
+```typescript
+@Component({
+  selector: 'app-paginated-list',
+  template: `
+    <div *ngFor="let item of paginatedItems">{{ item.name }}</div>
+    
+    <div class="pagination">
+      <button (click)="previousPage()" [disabled]="currentPage === 1">Previous</button>
+      <span>Page {{ currentPage }} of {{ totalPages }}</span>
+      <button (click)="nextPage()" [disabled]="currentPage === totalPages">Next</button>
+    </div>
+  `
+})
+export class PaginatedListComponent {
+  allItems: any[] = []; // 100k items
+  paginatedItems: any[] = [];
+  currentPage = 1;
+  pageSize = 50;
+  
+  get totalPages() {
+    return Math.ceil(this.allItems.length / this.pageSize);
+  }
+  
+  ngOnInit() {
+    this.loadPage(1);
+  }
+  
+  loadPage(page: number) {
+    const startIndex = (page - 1) * this.pageSize;
+    const endIndex = startIndex + this.pageSize;
+    this.paginatedItems = this.allItems.slice(startIndex, endIndex);
+    this.currentPage = page;
+  }
+  
+  nextPage() {
+    if (this.currentPage < this.totalPages) {
+      this.loadPage(this.currentPage + 1);
+    }
+  }
+  
+  previousPage() {
+    if (this.currentPage > 1) {
+      this.loadPage(this.currentPage - 1);
+    }
+  }
+}
+```
+
+**Performance:**
+- ✅ Only renders 50 items per page
+- ✅ Low memory footprint
+- ❌ Poor UX (manual navigation)
+
+---
+
+### Option 3: Infinite Scroll (Best for social feeds)
+
+**When to use:** Social media feeds, news articles, product listings.
+
+**How it works:** Load more data automatically when user scrolls near bottom.
+
+```typescript
+import { fromEvent } from 'rxjs';
+import { debounceTime, filter } from 'rxjs/operators';
+
+@Component({
+  selector: 'app-infinite-scroll',
+  template: `
+    <div class="list" #scrollContainer>
+      <div *ngFor="let item of displayedItems" class="item">
+        {{ item.name }}
+      </div>
+      <div *ngIf="loading" class="loader">Loading...</div>
+    </div>
+  `,
+  styles: [`
+    .list {
+      height: 500px;
+      overflow-y: auto;
+    }
+  `]
+})
+export class InfiniteScrollComponent implements OnInit {
+  @ViewChild('scrollContainer') scrollContainer!: ElementRef;
+  
+  allItems: any[] = Array.from({ length: 100000 }, (_, i) => ({ id: i, name: `Item ${i}` }));
+  displayedItems: any[] = [];
+  currentIndex = 0;
+  pageSize = 50;
+  loading = false;
+  
+  ngOnInit() {
+    this.loadMore();
+  }
+  
+  ngAfterViewInit() {
+    // Listen to scroll events
+    fromEvent(this.scrollContainer.nativeElement, 'scroll')
+      .pipe(
+        debounceTime(200),
+        filter(() => this.isNearBottom())
+      )
+      .subscribe(() => {
+        if (!this.loading && this.currentIndex < this.allItems.length) {
+          this.loadMore();
+        }
+      });
+  }
+  
+  isNearBottom(): boolean {
+    const element = this.scrollContainer.nativeElement;
+    const threshold = 100; // Load when 100px from bottom
+    return element.scrollHeight - element.scrollTop - element.clientHeight < threshold;
+  }
+  
+  loadMore() {
+    this.loading = true;
+    
+    // Simulate async loading
+    setTimeout(() => {
+      const nextItems = this.allItems.slice(
+        this.currentIndex,
+        this.currentIndex + this.pageSize
+      );
+      this.displayedItems.push(...nextItems);
+      this.currentIndex += this.pageSize;
+      this.loading = false;
+    }, 500);
+  }
+}
+```
+
+**Performance:**
+- ✅ Loads data progressively
+- ✅ Great UX (automatic loading)
+- ⚠️ Memory grows as user scrolls (all loaded items stay in DOM)
+
+---
+
+### Option 4: Server-Side Filtering/Pagination (Best for millions of records)
+
+**When to use:** Dataset is too large to load in memory (millions of rows).
+
+**How it works:** Backend handles filtering, sorting, pagination. Frontend only receives current page.
+
+```typescript
+@Component({
+  selector: 'app-server-pagination',
+  template: `
+    <input [(ngModel)]="searchQuery" (input)="search()" placeholder="Search...">
+    
+    <table>
+      <tr *ngFor="let item of items">
+        <td>{{ item.name }}</td>
+      </tr>
+    </table>
+    
+    <button (click)="loadPage(currentPage - 1)" [disabled]="currentPage === 1">Previous</button>
+    <span>{{ currentPage }} / {{ totalPages }}</span>
+    <button (click)="loadPage(currentPage + 1)" [disabled]="currentPage === totalPages">Next</button>
+  `
+})
+export class ServerPaginationComponent {
+  items: any[] = [];
+  currentPage = 1;
+  totalPages = 0;
+  pageSize = 50;
+  searchQuery = '';
+  
+  constructor(private http: HttpClient) {}
+  
+  ngOnInit() {
+    this.loadPage(1);
+  }
+  
+  loadPage(page: number) {
+    const params = {
+      page: page.toString(),
+      pageSize: this.pageSize.toString(),
+      search: this.searchQuery
+    };
+    
+    this.http.get<any>('/api/items', { params }).subscribe(response => {
+      this.items = response.items;
+      this.currentPage = response.currentPage;
+      this.totalPages = response.totalPages;
+    });
+  }
+  
+  search() {
+    this.loadPage(1); // Reset to first page on search
+  }
+}
+```
+
+**Backend API Response:**
+```json
+{
+  "items": [...], // Only 50 items
+  "currentPage": 1,
+  "totalPages": 2000,
+  "totalItems": 100000
+}
+```
+
+**Performance:**
+- ✅ Minimal frontend memory usage
+- ✅ Handles millions of records
+- ✅ Fast search/filtering on backend
+- ⚠️ Requires backend support
+
+---
+
+### Which Strategy to Choose?
+
+| Scenario | Best Strategy |
+|----------|---------------|
+| **100k items, all in memory, need smooth scroll** | Virtual Scrolling (CDK) ✅ |
+| **Admin table, need sorting/filtering** | Pagination ✅ |
+| **Social feed, news list** | Infinite Scroll ✅ |
+| **Millions of records, can't load all** | Server-Side Pagination ✅ |
+| **Real-time data updates** | Virtual Scrolling + WebSocket |
+| **Mobile app with limited memory** | Server-Side Pagination ✅ |
+
+---
+
+### Performance Tips
+
+1. **TrackBy function** (for all strategies):
+```typescript
+<div *ngFor="let item of items; trackBy: trackById">
+  {{ item.name }}
+</div>
+
+trackById(index: number, item: any) {
+  return item.id; // Angular reuses DOM nodes with same ID
+}
+```
+
+2. **OnPush change detection:**
+```typescript
+@Component({
+  changeDetection: ChangeDetectionStrategy.OnPush
+})
+```
+
+3. **Debounce search input:**
+```typescript
+this.searchControl.valueChanges
+  .pipe(debounceTime(300))
+  .subscribe(query => this.search(query));
+```
+
+### Summary
+
+- **Virtual Scrolling:** Best all-around for large in-memory lists ✅
+- **Pagination:** Simple but poor UX
+- **Infinite Scroll:** Great UX but memory grows
+- **Server-Side:** Only option for truly massive datasets (millions)
 
 ## 10. Lazy Loading & Bundle Splitting
 **Concept:** Splitting the application into smaller bundles (chunks) that are loaded on demand (lazy loaded) rather than all at once. This improves initial load time.
